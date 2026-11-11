@@ -31,10 +31,15 @@ val debugLogPatch = patch(
     extendWith("extensions/voicelog.mpe")
 
     execute {
-        FirebaseMessagingHandleIntentFingerprint.method.addInstruction(
-            0,
-            "invoke-static { p1 }, $VOICE_LOG->onPush(Landroid/content/Intent;)V",
-        )
+        FirebaseMessagingHandleIntentFingerprint.method.apply {
+            // The Intent parameter is the last register (p0 = this, p1 = intent).
+            val intentRegister = implementation!!.registerCount - 1
+            addInstruction(
+                0,
+                "invoke-static/range { v$intentRegister .. v$intentRegister }, " +
+                    "$VOICE_LOG->onPush(Landroid/content/Intent;)V",
+            )
+        }
 
         resourceXml("AndroidManifest.xml").use { manifest ->
             val packageName = manifest.root.attribute("package")!!
