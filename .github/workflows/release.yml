@@ -35,7 +35,7 @@ jobs:
         run: |
           VERSION=$(grep '^version' gradle.properties | cut -d= -f2 | tr -d ' ')
           TAG="v${VERSION}-${GITHUB_RUN_NUMBER}"
-          MPP=$(ls patches/build/libs/patches-*.mpp | grep -v -e sources -e javadoc | head -1)
+          MPP=$(ls patches/build/libs/*.mpp | grep -v -e sources -e javadoc | head -1)
           cp "$MPP" "gvoice-patches-${VERSION}-${GITHUB_RUN_NUMBER}.mpp"
           gh release create "$TAG" "gvoice-patches-${VERSION}-${GITHUB_RUN_NUMBER}.mpp" \
             --title "$TAG" --notes "Google Voice patches build ${GITHUB_RUN_NUMBER} (commit ${GITHUB_SHA::7})."
