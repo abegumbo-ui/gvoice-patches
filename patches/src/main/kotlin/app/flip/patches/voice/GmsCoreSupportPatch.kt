@@ -14,6 +14,7 @@ package app.flip.patches.voice
 import app.flip.patches.voice.Constants.COMPATIBILITY_GOOGLE_VOICE
 import app.morphe.patcher.Fingerprint
 import app.morphe.patcher.StringComparisonType
+import app.morphe.patcher.extensions.InstructionExtensions.addInstruction
 import app.morphe.patcher.extensions.InstructionExtensions.getInstruction
 import app.morphe.patcher.extensions.InstructionExtensions.replaceInstruction
 import app.morphe.patcher.patch.patch
@@ -25,7 +26,9 @@ import app.morphe.patcher.util.returnEarly
 import com.android.tools.smali.dexlib2.AccessFlags
 import com.android.tools.smali.dexlib2.Opcode
 import com.android.tools.smali.dexlib2.builder.instruction.BuilderInstruction21c
+import com.android.tools.smali.dexlib2.iface.instruction.FiveRegisterInstruction
 import com.android.tools.smali.dexlib2.iface.instruction.OneRegisterInstruction
+import com.android.tools.smali.dexlib2.iface.reference.MethodReference
 import com.android.tools.smali.dexlib2.iface.instruction.ReferenceInstruction
 import com.android.tools.smali.dexlib2.iface.reference.StringReference
 import com.android.tools.smali.dexlib2.immutable.reference.ImmutableStringReference
@@ -39,6 +42,16 @@ internal object GooglePlayUtilityFingerprint : Fingerprint(
         string("MetadataValueReader"),
         string("This should never happen."),
         string("com.google.android.gms"),
+    ),
+)
+
+/** firebase-installations: builds the HttpURLConnection with the app's package and certificate headers. */
+internal object FirebaseInstallationsConnectionFingerprint : Fingerprint(
+    returnType = "Ljava/net/HttpURLConnection;",
+    filters = listOf(
+        string("X-Android-Package"),
+        string("X-Android-Cert"),
+        string("x-goog-api-key"),
     ),
 )
 
@@ -119,6 +132,42 @@ val gmsCoreSupportPatch = patch(
                 )
             }
 
+        // endregion
+
+        // region Firebase Installations.
+        // Firebase sends the app's package name and signing-key SHA-1 to firebaseinstallations.googleapis.com,
+        // and Voice's API key only accepts the real ones. Without this, there is no FCM token,
+        // so no push and no incoming calls.
+        FirebaseInstallationsConnectionFingerprint.method.apply {
+            val instructions = implementation!!.instructions.toList()
+
+            // Every Context.getPackageName() result in this method becomes the original package name.
+            instructions.withIndex().reversed().forEach { (index, instruction) ->
+                val ref = (instruction as? ReferenceInstruction)?.reference as? MethodReference ?: return@forEach
+                if (ref.name != "getPackageName" || ref.parameterTypes.isNotEmpty()) return@forEach
+                val next = instructions.getOrNull(index + 1) ?: return@forEach
+                if (next.opcode != Opcode.MOVE_RESULT_OBJECT) return@forEach
+                replaceInstruction(
+                    index + 1,
+                    BuilderInstruction21c(
+                        Opcode.CONST_STRING,
+                        (next as OneRegisterInstruction).registerA,
+                        ImmutableStringReference(VOICE_PACKAGE),
+                    ),
+                )
+            }
+
+            // The value passed with the "X-Android-Cert" header becomes Google's certificate SHA-1.
+            val certKeyIndex = instructions.indexOfFirst {
+                ((it as? ReferenceInstruction)?.reference as? StringReference)?.string == "X-Android-Cert"
+            }
+            val addIndex = (certKeyIndex until instructions.size).first { i ->
+                val ref = (instructions[i] as? ReferenceInstruction)?.reference as? MethodReference
+                ref?.name == "addRequestProperty"
+            }
+            val valueRegister = (instructions[addIndex] as FiveRegisterInstruction).registerE
+            addInstruction(addIndex, "const-string v$valueRegister, \"${VOICE_SIGNATURE.uppercase()}\"")
+        }
         // endregion
 
         // region Manifest.
