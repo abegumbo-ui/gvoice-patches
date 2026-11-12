@@ -3,6 +3,7 @@ package app.flip.patches.voice
 import app.flip.patches.voice.Constants.COMPATIBILITY_GOOGLE_VOICE
 import app.morphe.patcher.extensions.InstructionExtensions.addInstruction
 import app.morphe.patcher.extensions.InstructionExtensions.replaceInstruction
+import app.morphe.patcher.patch.bytecodePatch
 import app.morphe.patcher.patch.patch
 import app.morphe.patcher.patch.resourceXml
 import com.android.tools.smali.dexlib2.Opcode
@@ -15,14 +16,29 @@ private const val RECORDER = "Lapp/flip/callrecord/CallRecorder;"
 private const val CONNECTION_SERVICE =
     "Lcom/google/android/apps/voice/voip/telephony/connectionservice/selfmanaged/VoipConnectionService;"
 
+private val callRecordingManifestPatch = patch {
+    execute {
+        resourceXml("AndroidManifest.xml").use { manifest ->
+            val packageName = manifest.root.attribute("package")!!
+            manifest.elements("application").first().appendChild("provider") {
+                setAttribute("android:name", "app.flip.callrecord.CallRecorder")
+                setAttribute("android:authorities", "$packageName.callrecord")
+                setAttribute("android:exported", "false")
+            }
+        }
+    }
+}
+
 @Suppress("unused")
-val callRecordingPatch = patch(
+val callRecordingPatch = bytecodePatch(
     name = "Call recording",
     description = "Automatically records every incoming and outgoing Voice call (both sides) to " +
         "Recordings/Voice calls. Works for calls made over Wi-Fi or mobile data, not calls Voice " +
         "routes through the carrier.",
 ) {
     compatibleWith(COMPATIBILITY_GOOGLE_VOICE)
+
+    dependsOn(callRecordingManifestPatch)
 
     extendWith("extensions/callrecord.mpe")
 
@@ -82,14 +98,5 @@ val callRecordingPatch = patch(
         }
 
         // endregion
-
-        resourceXml("AndroidManifest.xml").use { manifest ->
-            val packageName = manifest.root.attribute("package")!!
-            manifest.elements("application").first().appendChild("provider") {
-                setAttribute("android:name", "app.flip.callrecord.CallRecorder")
-                setAttribute("android:authorities", "$packageName.callrecord")
-                setAttribute("android:exported", "false")
-            }
-        }
     }
 }
