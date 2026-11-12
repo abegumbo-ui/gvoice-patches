@@ -29,13 +29,30 @@ jobs:
           ./gradlew :patches:buildAndroid --no-daemon
           ls -la patches/build/libs
 
-      - name: Publish release
+      - name: Publish release and bundle info for Morphe Manager
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          VERSION=$(grep '^version' gradle.properties | cut -d= -f2 | tr -d ' ')
-          TAG="v${VERSION}-${GITHUB_RUN_NUMBER}"
+          VERSION="1.0.${GITHUB_RUN_NUMBER}"
+          TAG="v${VERSION}"
+          FILE="patches-${VERSION}.mpp"
           MPP=$(ls patches/build/libs/*.mpp | grep -v -e sources -e javadoc | head -1)
-          cp "$MPP" "gvoice-patches-${VERSION}-${GITHUB_RUN_NUMBER}.mpp"
-          gh release create "$TAG" "gvoice-patches-${VERSION}-${GITHUB_RUN_NUMBER}.mpp" \
-            --title "$TAG" --notes "Google Voice patches build ${GITHUB_RUN_NUMBER} (commit ${GITHUB_SHA::7})."
+          cp "$MPP" "$FILE"
+          NOTES="$(git log -1 --pretty=%B | head -1)"
+          gh release create "$TAG" "$FILE" --title "$TAG" --notes "$NOTES"
+
+          cat > patches-bundle.json <<EOF
+          {
+            "created_at": "$(date -u +%Y-%m-%dT%H:%M:%S)",
+            "description": $(printf '%s' "$NOTES" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))'),
+            "download_url": "https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/${FILE}",
+            "signature_download_url": "",
+            "version": "${VERSION}"
+          }
+          EOF
+          sed -i 's/^          //' patches-bundle.json
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add patches-bundle.json
+          git commit -m "chore: patches-bundle.json for ${TAG} [skip ci]"
+          git push
